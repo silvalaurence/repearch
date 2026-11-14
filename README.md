@@ -14,7 +14,8 @@ It does the boring documentation work: reading your code, drawing the ER diagram
 | Pull out the facts | `gen_sections.py` | Tech stack table, architecture diagram, endpoints per module, **ER diagram**, **data dictionary**, env table |
 | Draft chapters | `templates/` | Chapter 1, 2 (worksheet), 3, 4, 5, appendices, ISO 25010 survey — copy only the ones your school needs |
 | Format sources | `format_refs.py` | APA 7 list from sources **you** found (it never makes any up) |
-| Build the paper | `build_docx.py` | Word file: title page, TOC, page numbers, diagrams as images, your school's font and margins via presets |
+| Build the paper | `build_docx.py` | Word file: title page, TOC, page numbers, diagrams as images, your school's font and margins via presets. `--split` also writes one file per chapter |
+| Renumber, or stop numbering | `strip_numbering.py` | Drops `2.1` and `Table 2.1` labels when your manual wants plain names, and refuses to save while a cross-reference still points at a number you just deleted |
 | Survey math | `likert_sheet.py` | Excel sheet that computes weighted means and Strongly Agree/Agree labels from real responses |
 | Check what's left | `gaps_report.py` | A to-do list of everything unfinished in the chapters your preset requires, including the title page written by `build_docx.py` (`--strict` fails until it's clean) |
 
@@ -102,7 +103,27 @@ python scripts/build_docx.py output/ --title "..." --chapters 1-3 --out Chapters
 python scripts/gaps_report.py output/ --chapters 1-3 --format four-chapter
 ```
 
-Only those chapters are built and only those are checked: front matter, back matter and appendices are then out of scope, not "missing". A lone number is still the 1-through-N shortcut, so `--chapters 3` means Chapters 1 to 3 and `--chapters 3-3` means Chapter 3 alone.
+Only those chapters are built and only those are checked: front matter, back matter and appendices are then out of scope, not "missing". A lone number is still the 1-through-N shortcut, so `--chapters 3` means Chapters 1 to 3 and `--chapters 3-3` means Chapter 3 alone. `--chapters 2,3` and `--chapters 2-3` both mean the same two chapters.
+
+If each chapter is handed in as its own file, add `--split`. One document is written per chapter, and each carries only the references that chapter actually cites, so Chapter II does not arrive stapled to sources it never mentions:
+
+```bash
+python scripts/build_docx.py output/ --title "..." --chapters 2,3 --split --out Chapters_2-3.docx
+# Chapters_2-3.docx, Chapters_2-3 - Chapter 2.docx, Chapters_2-3 - Chapter 3.docx
+```
+
+Split files need a `references.md` in the folder (`format_refs.py` writes one); without it the builder says so instead of shipping chapters with no bibliography. An entry whose author line cannot be read is kept rather than guessed at - leaving out a source the chapter did cite is the worse mistake.
+
+## Sections without numbers
+
+Some manuals want `2.1 Theoretical Background` and `Table 2.1 Summary of studies`; others want the same pages with plain names. `strip_numbering.py` removes the labels from headings and captions, and then stops:
+
+```bash
+python scripts/strip_numbering.py output/              # what would change, and what would break
+python scripts/strip_numbering.py output/ --write      # apply it, once nothing dangles
+```
+
+The moment a number disappears, every sentence that said "see Table 2.1" or "discussed in Section 3.4" points at nothing. The script lists each of those with its file and line, suggests a rewrite, and refuses to save until they are fixed - or until you pass `--allow-dangling` and accept them. Only dotted labels are touched, so a chapter numeral like `II.` survives; that is the number the manual uses to find the chapter. Rewriting the sentences themselves stays your job, because only you know what "the Research Instrument section" should say.
 
 The title page is written by `build_docx.py`, so its blanks are filled by flags, not by editing markdown:
 
@@ -117,7 +138,9 @@ Anything you leave out stays marked `[STUDENT: School name]` and yellow. Put the
 ## Figures
 
 - **Caption above the figure**, on its own bold line: `**Figure 3.1 The system architecture**`. `build_docx.py` uses that as the printed caption and invents nothing otherwise.
-- **Draw for the page.** mermaid.live returns whatever shape the graph wants; a wide tree at page width prints as a strip nobody can read, and the builder warns you when that happens. Group nodes into row-wise subgraphs, and split any tree with more than ~15 leaves into two captioned figures.
+- **A caption does not need a number.** `**Summary of related studies**` directly above a table becomes that table's caption, printed bold and centred above it; the same line above a diagram or image becomes the figure caption. A bold line that ends in a full stop is read as an emphasised sentence, not a title, so `**Treatment of data.**` stays in the body where it belongs. With no caption line at all, the figure simply gets none - the gaps report is where that shows up.
+- **Ticks and crosses get a font that can draw them.** Neither Arial nor Times New Roman has `✓` or `✗`, so a comparative matrix built from them prints as empty boxes. `build_docx.py` moves only those glyphs to a symbol font and leaves the prose in your school's typeface.
+- **Draw for the page.** mermaid.live returns whatever shape the graph wants; a wide tree at page width prints as a strip nobody can read, and the builder warns you when that happens. The check is on the width-to-height ratio, not just on height: a 3.4:1 chart still prints 1.6 in tall and still loses every label, so anything past about 2.4:1 is flagged. Group nodes into row-wise subgraphs, and split any tree with more than ~15 leaves into two captioned figures.
 - **Big schemas are already split.** `diagrams/er.mmd` is the printable figure (entities and relationships only), `diagrams/er_detail.mmd` keeps every column for the data dictionary, and `diagrams/er_part1.mmd`, `er_part2.mmd` ... follow the foreign-key lines into page-sized groups.
 
 ## A dry run, in the open

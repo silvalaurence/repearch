@@ -457,3 +457,136 @@ def test_the_saved_document_shows_dry_run_prose_in_its_own_colour(tmp_path):
     assert runs and runs[0].font.highlight_color == WD_COLOR_INDEX.BRIGHT_GREEN
     student = [r for p in Document(docx).paragraphs for r in p.runs if "[STUDENT" in r.text]
     assert student and student[0].font.highlight_color == WD_COLOR_INDEX.YELLOW
+
+
+# ------------------------------------------- the Chapters II-III run of November 2026
+#
+# One test per thing that actually went wrong on a real two-chapter submission, so the
+# next student gets the fix rather than the same afternoon.
+
+def test_chapters_accept_the_comma_form_the_error_message_advertises(tmp_path):
+    """--chapters 2,3 was rejected while the failure message told the student to use 2,3."""
+    from _chapters import parse
+    assert parse("2,3") == [2, 3]
+    assert parse("1,2,3") == [1, 2, 3]
+    assert parse("2-3") == [2, 3]
+    assert parse("3") == [1, 2, 3], "a lone number still means one through that number"
+    assert parse("3-3") == [3]
+    assert parse([2, 3]) == [2, 3]
+
+    out = tmp_path / "output"
+    out.mkdir()
+    for n in (1, 2, 3):
+        (out / f"chapter{n}.md").write_text(f"# CHAPTER {n}\n\nText.\n")
+    r = run(SCRIPTS / "build_docx.py", out, "--title", "T", "--out", tmp_path / "d.docx",
+            "--chapters", "2,3", "--no-render")
+    assert "Traceback" not in r.stderr
+
+
+def test_an_unnumbered_caption_survives_and_sits_above_its_table(tmp_path):
+    """Dropping 'Table 2.1' from a caption deleted the caption as well as the number."""
+    from build_docx import unnumbered_caption
+    assert unnumbered_caption("**Summary of related studies**") == "Summary of related studies"
+    assert unnumbered_caption("**Treatment of data.**") is None, "a bold sentence is not a title"
+    assert unnumbered_caption("plain prose") is None
+
+    out = tmp_path / "output"
+    out.mkdir()
+    (out / "chapter2.md").write_text(
+        "# CHAPTER II\n\n## Related Studies\n\n"
+        "**Summary of related studies**\n\n"
+        "| Study | Focus |\n|---|---|\n| Wong (2024) | AI scheduling |\n\n"
+        "**Treatment of data.**\n\n| A | B |\n|---|---|\n| 1 | 2 |\n")
+    docx = tmp_path / "c.docx"
+    run(SCRIPTS / "build_docx.py", out, "--title", "T", "--out", docx, "--no-render")
+
+    from docx import Document
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml.ns import qn
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+    d = Document(docx)
+    seq = [("T" if ch.tag == qn("w:tbl") else "P",
+            "" if ch.tag == qn("w:tbl") else Paragraph(ch, d).text.strip())
+           for ch in d.element.body.iterchildren() if ch.tag in (qn("w:p"), qn("w:tbl"))]
+    idx = next(i for i, (k, t) in enumerate(seq) if t == "Summary of related studies")
+    assert seq[idx + 1][0] == "T", "the caption must sit directly above its table"
+    cap = [p for p in d.paragraphs if p.text.strip() == "Summary of related studies"][0]
+    assert cap.alignment == WD_ALIGN_PARAGRAPH.CENTER and cap.runs[0].bold
+    assert cap.paragraph_format.keep_with_next, "a caption orphaned from its table is a defect"
+    assert "Treatment of data." in [p.text.strip() for p in d.paragraphs], "an emphasised sentence stays prose"
+
+
+def test_a_check_and_a_cross_get_a_font_that_has_them(tmp_path):
+    """A comparative matrix of ticks printed as a row of empty boxes in Arial."""
+    out = tmp_path / "output"
+    out.mkdir()
+    (out / "chapter2.md").write_text(
+        "# CHAPTER II\n\n**Comparative matrix**\n\n"
+        "| Feature | Ours |\n|---|---|\n| AI schedule | ✓ |\n| Offline | ✗ |\n\n"
+        "Legend: **✓** present, **✗** absent.\n")
+    docx = tmp_path / "c.docx"
+    run(SCRIPTS / "build_docx.py", out, "--title", "T", "--out", docx, "--no-render")
+
+    from docx import Document
+    d = Document(docx)
+    marks = [r for p in d.paragraphs for r in p.runs if any(c in "✓✗" for c in r.text)]
+    for t in d.tables:
+        for row in t.rows:
+            for cell in row.cells:
+                marks += [r for p in cell.paragraphs for r in p.runs if any(c in "✓✗" for c in r.text)]
+    assert len(marks) >= 4, "every mark, in the body and in a cell, is found"
+    assert all(r.font.name != "Times New Roman" for r in marks), "the school font cannot draw these"
+    prose = [r for p in d.paragraphs for r in p.runs if "present" in r.text]
+    assert prose and prose[0].font.name == "Times New Roman", "only the glyphs move font, not the prose"
+
+
+def test_a_wide_figure_is_warned_about_not_only_a_strip():
+    """A 3.4:1 chart printed 1.6 in tall, cleared the height floor, and lost every label."""
+    assert figure_warning("x", 5.5, 1.62), "a 3.4:1 chart is unreadable even at 1.6 in tall"
+    assert "wider" in figure_warning("x", 5.5, 1.62)
+    assert figure_warning("x", 5.5, 0.31) and "strip" in figure_warning("x", 5.5, 0.31)
+    assert figure_warning("x", 5.0, 3.5) is None, "a normal 1.4:1 figure must stay quiet"
+
+
+def test_numbering_is_stripped_only_when_no_reference_breaks(tmp_path):
+    """Removing 'Section 3.6' left the cross-reference pointing at nothing."""
+    out = tmp_path / "output"
+    out.mkdir()
+    md = out / "chapter3.md"
+    md.write_text(
+        "# CHAPTER III\n# METHODOLOGY\n\n## 3.1 Research Design\n\n"
+        "The scale is defined in Section 3.3.\n\n"
+        "**Table 3.3 Interpretation of weighted mean**\n\n| A | B |\n|---|---|\n| 1 | 2 |\n")
+    r = run(SCRIPTS / "strip_numbering.py", out, "--write", check=False)
+    assert r.returncode == 1 and "Section 3.3" in r.stdout
+    assert "## 3.1 Research Design" in md.read_text(), "nothing is written while a reference dangles"
+
+    waived = run(SCRIPTS / "strip_numbering.py", out, "--write", "--allow-dangling")
+    assert waived.returncode == 0
+    text = md.read_text()
+    assert "## Research Design" in text and "**Interpretation of weighted mean**" in text
+    assert "# CHAPTER III" in text, "the chapter numeral is what the manual uses to find the chapter"
+
+
+def test_split_gives_each_chapter_its_own_references(tmp_path):
+    """Handing in Chapter II alone meant a bespoke script to cut the bibliography down."""
+    out = tmp_path / "output"
+    out.mkdir()
+    (out / "chapter2.md").write_text("# CHAPTER II\n\nDavis (1989) and Wong (2024) agree.\n")
+    (out / "chapter3.md").write_text("# CHAPTER III\n\nZimmerman (2002) defines the cycle.\n")
+    (out / "references.md").write_text(
+        "# REFERENCES\n\n"
+        "Davis, F. D. (1989). Perceived usefulness. MIS Quarterly, 13(3), 319-340.\n\n"
+        "Wong, K. (2024). AI scheduling for students. Journal of Educational Technology, 12(1), 1-20.\n\n"
+        "Zimmerman, B. J. (2002). Becoming a self-regulated learner. Theory Into Practice, 41(2), 64-70.\n")
+    r = run(SCRIPTS / "build_docx.py", out, "--title", "T", "--out", tmp_path / "d.docx",
+            "--chapters", "2,3", "--split", "--no-render")
+    assert "2 of its own references" in r.stdout and "1 of its own references" in r.stdout
+
+    from docx import Document
+    ch2 = [p.text for p in Document(tmp_path / "d - Chapter 2.docx").paragraphs]
+    ch3 = [p.text for p in Document(tmp_path / "d - Chapter 3.docx").paragraphs]
+    assert any("Davis" in t for t in ch2) and any("Wong" in t for t in ch2)
+    assert not any("Zimmerman" in t for t in ch2), "a chapter does not ship sources it never cites"
+    assert any("Zimmerman" in t for t in ch3) and not any("Davis" in t for t in ch3)

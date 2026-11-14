@@ -69,7 +69,9 @@ Diagrams: replace each ```` ```mermaid-placeholder ```` block in the templates w
 
 **Caption a figure on the line above it**, as `**Figure 3.1 The system flowchart**`. `build_docx.py` uses that line as the printed caption and invents nothing; a diagram with no caption simply gets none.
 
-**Draw for the page, not for the screen.** mermaid.live returns whatever shape the graph wants, and a wide tree comes back 18:1 - at page width that prints as a strip nobody can read, and `build_docx.py` warns when it happens. Group nodes into row-wise subgraphs, and split any tree with more than about fifteen leaves into two figures. `gen_sections.py` already does this for large schemas: `diagrams/er.mmd` holds entities and relationships only (the printable figure), `diagrams/er_detail.mmd` keeps every column (the data dictionary source), and `diagrams/er_partN.mmd` follows foreign-key lines into page-sized groups. Caption the parts as separate figures instead of shrinking one large one.
+**A caption does not have to carry a number.** If the manual numbers nothing, write `**Summary of related studies**` on the line above the table or diagram and it becomes the caption - bold and centred above a table, below a figure. A bold line ending in a full stop is treated as an emphasised sentence, so `**Treatment of data.**` stays in the body. Never add a number the student's manual does not use just to make the builder happy.
+
+**Draw for the page, not for the screen.** mermaid.live returns whatever shape the graph wants, and a wide tree comes back 18:1 - at page width that prints as a strip nobody can read, and `build_docx.py` warns when it happens. The warning is on the width-to-height ratio, so a 3.4:1 chart is flagged even though it clears 1.6 in tall. Group nodes into row-wise subgraphs, and split any tree with more than about fifteen leaves into two figures. `gen_sections.py` already does this for large schemas: `diagrams/er.mmd` holds entities and relationships only (the printable figure), `diagrams/er_detail.mmd` keeps every column (the data dictionary source), and `diagrams/er_partN.mmd` follows foreign-key lines into page-sized groups. Caption the parts as separate figures instead of shrinking one large one.
 
 ### Step 4: References (only if the student has sources)
 ```
@@ -88,7 +90,16 @@ python scripts/likert_sheet.py --questions output/survey_iso25010.md --out Surve
 Skip `likert_sheet.py` when Chapter 4 is not part of this school's format; there is no evaluation chapter to fill.
 Mermaid blocks become images automatically when `mmdc` is installed (`npm i -g @mermaid-js/mermaid-cli`); otherwise they stay as a highlighted block to render at mermaid.live.
 
-`--chapters 1-3` builds only what this run hands in; front and back matter join in only for a whole-paper run, and the skipped files are listed so nothing vanishes silently. `--school/--college/--degree/--authors/--date` fill the title page - the same keys also work under `"title_page"` in the preset, so a group that builds the paper weekly does not retype them. Ask for them at intake; a title page left as `[STUDENT: School name]` is a blank page in the printed draft. The counts the builder prints are read back out of the saved .docx, so they include the title page it wrote.
+`--chapters 1-3` builds only what this run hands in; front and back matter join in only for a whole-paper run, and the skipped files are listed so nothing vanishes silently. The comma form works too: `--chapters 2,3` and `--chapters 2-3` are the same two chapters. `--school/--college/--degree/--authors/--date` fill the title page - the same keys also work under `"title_page"` in the preset, so a group that builds the paper weekly does not retype them. Ask for them at intake; a title page left as `[STUDENT: School name]` is a blank page in the printed draft. The counts the builder prints are read back out of the saved .docx, so they include the title page it wrote.
+
+**When the student hands in one chapter at a time**, add `--split`. Each chapter gets its own file and its own reference list, cut down to the sources that chapter actually cites. It needs `output/references.md`; without one the builder says so rather than shipping a chapter with no bibliography. If the student says "I only need to pass Chapter 2 and Chapter 3", this is the flag - do not write a bespoke splitting script.
+
+**When the manual wants no section numbers**, run `strip_numbering.py` before the build:
+```
+python scripts/strip_numbering.py output/            # shows the edits and every reference that would break
+python scripts/strip_numbering.py output/ --write    # applies them, once nothing dangles
+```
+It removes `2.1` from headings and `Table 2.1`/`Figure 2.1` from captions, keeps chapter numerals like `II.`, and refuses to save while a sentence still says "Section 3.4". Rewriting those sentences is yours to do - name the part instead ("the Research Instrument section", "the interpretation table below"). Never pass `--allow-dangling` just to get past the check; a draft full of dead cross-references is what the panel notices.
 
 ### Step 6: Gaps report
 ```

@@ -45,6 +45,12 @@ RENDER = {"on": True, "base": ".", "count": 0, "warnings": []}
 STUDENT_RE = re.compile(r"\[STUDENT[^\]]*\]")
 DRYRUN_RE = re.compile(r"\[DRY-RUN[^\]]*\]")
 BRACES_RE = re.compile(r"\{\{[^}]*\}\}")
+# Neither Arial nor Times New Roman carries U+2713 or U+2717, so a comparative matrix of
+# ticks and crosses prints as a row of empty boxes. Only these glyphs are moved to a font
+# that has them; every other character stays in the school's own typeface.
+SYMBOL_CHARS = "✓✔✗✘✕✖"
+SYMBOL_FONT = {"win32": "Segoe UI Symbol", "darwin": "Apple Symbols"}.get(sys.platform, "DejaVu Sans")
+SYMBOL_SPLIT = re.compile("([%s])" % re.escape(SYMBOL_CHARS))
 TITLE_PARTS = [
     ("A Capstone Project", None, None),
     ("Presented to the Faculty of {}", "college", "College / Department"),
@@ -60,14 +66,29 @@ TITLE_PARTS = [
 ]
 
 
-def set_font(run, size=None, bold=None, italic=None, mono=False):
-    run.font.name = "Courier New" if mono else CFG["font"]
-    run._element.rPr.rFonts.set(qn("w:eastAsia"), "Courier New" if mono else CFG["font"])
+def set_font(run, size=None, bold=None, italic=None, mono=False, symbol=False):
+    name = SYMBOL_FONT if symbol else ("Courier New" if mono else CFG["font"])
+    run.font.name = name                      # python-docx writes ascii and hAnsi together
+    fonts = run._element.get_or_add_rPr().get_or_add_rFonts()
+    fonts.set(qn("w:eastAsia"), name)
+    fonts.set(qn("w:cs"), name)
     run.font.size = Pt(size or CFG["size"])
     if bold is not None:
         run.bold = bold
     if italic is not None:
         run.italic = italic
+
+
+def emit(paragraph, text, size=None, bold=None, italic=None, mono=False):
+    """Add text as runs, splitting off the glyphs the school font cannot draw."""
+    runs = []
+    for chunk in SYMBOL_SPLIT.split(text):
+        if not chunk:
+            continue
+        run = paragraph.add_run(chunk)
+        set_font(run, size, bold, italic, mono, symbol=chunk in SYMBOL_CHARS)
+        runs.append(run)
+    return runs
 
 
 def mark(run, kind):
@@ -132,19 +153,19 @@ def add_inline(paragraph, text, size=None):
         if not tok:
             continue
         if tok.startswith("**") and tok.endswith("**"):
-            run = paragraph.add_run(tok[2:-2])
-            set_font(run, size, bold=True)
+            runs = emit(paragraph, tok[2:-2], size, bold=True)
         elif tok.startswith("`") and tok.endswith("`"):
-            set_font(paragraph.add_run(tok[1:-1]), 11, mono=True)
+            runs = emit(paragraph, tok[1:-1], 11, mono=True)
         elif tok.startswith("*") and tok.endswith("*") and len(tok) > 2:
-            set_font(paragraph.add_run(tok[1:-1]), size, italic=True)
+            runs = emit(paragraph, tok[1:-1], size, italic=True)
         else:
-            run = paragraph.add_run(tok)
-            set_font(run, size)
+            runs = emit(paragraph, tok, size)
         if STUDENT_RE.search(tok):
-            mark(run, "student")
+            for run in runs:
+                mark(run, "student")
         elif DRYRUN_RE.search(tok):
-            mark(run, "dry-run")
+            for run in runs:
+                mark(run, "dry-run")
 
 
 def style_paragraph(p, spacing=2.0, align=None, after=0):
@@ -208,8 +229,10 @@ def column_widths(header, body):
     return [Emu(w * 635) for w in raw]
 
 
-def add_table(doc, rows):
+def add_table(doc, rows, caption=None):
     header, body = rows[0], rows[1:]
+    if caption:
+        add_caption(doc, caption)
     widths = column_widths(header, body)
     t = doc.add_table(rows=1, cols=len(header))
     t.style = "Table Grid"
@@ -234,7 +257,7 @@ def add_table(doc, rows):
         c.text = ""
         p = c.paragraphs[0]
         style_paragraph(p, 1.0)
-        set_font(p.add_run(h.strip()), TABLE_PT, bold=True)
+        emit(p, h.strip(), TABLE_PT, bold=True)
         shade(c, "D9D9D9")
     row_property(t.rows[0], "tblHeader", "true")   # repeats on every page the table runs onto
     row_property(t.rows[0], "cantSplit")
@@ -271,11 +294,16 @@ def figure_warning(label, width, height):
     """Catch the diagrams that technically rendered but cannot be read.
 
     mermaid.live hands back whatever the graph wants, and a wide tree comes out 18:1 -
-    at page width that is a strip a panelist cannot decipher.
+    at page width that is a strip a panelist cannot decipher. A strip is only the extreme
+    case: a 3.4:1 chart prints 1.6 in tall, clears a height floor, and still loses every
+    label once it is squeezed onto a page, so the width-to-height ratio is what is checked.
     """
     if height < 1.2:
         return (f"{label}: prints {width:.1f} x {height:.1f} in, a strip nobody can read. "
                 "Group the nodes into row-wise subgraphs, or split it into two figures.")
+    if width / height > 2.4:
+        return (f"{label}: prints {width:.1f} x {height:.1f} in, {width / height:.1f} times wider "
+                "than tall. Group the nodes into row-wise subgraphs, or split it into two figures.")
     if height / width > 3.0:
         return (f"{label}: prints {width:.1f} x {height:.1f} in, taller than it is wide. "
                 "Try 'flowchart TB', or split the tree so each figure holds about fifteen leaves.")
@@ -323,6 +351,55 @@ def caption_from(line):
     return m.group(1).strip() if m else None
 
 
+BOLD_ONLY = re.compile(r"^\*\*\s*([^*]+?)\s*\*\*$")
+CAPTION_PUNCT = (".", ":", ";", "?", "!")
+
+
+def unnumbered_caption(line):
+    """A bold-only line above a table or diagram, e.g. **Summary of related studies**.
+
+    Not every college manual numbers its tables, and a student told to drop the numbering
+    should not lose every caption with it. The line has to earn the promotion, though: it
+    is only ever called when the next block really is a table, a diagram or an image, and
+    a bold run that ends in a full stop is a sentence the student emphasised, not a title.
+    """
+    if not line:
+        return None
+    m = BOLD_ONLY.match(line.strip())
+    if not m:
+        return None
+    text = m.group(1).strip()
+    if not text or len(text) > 120 or text.endswith(CAPTION_PUNCT):
+        return None
+    return text
+
+
+def next_block(lines, i):
+    """What the next non-blank line opens: 'table', 'mermaid', 'image', or None."""
+    j = i + 1
+    while j < len(lines) and not lines[j].strip():
+        j += 1
+    if j >= len(lines):
+        return None
+    s = lines[j].strip()
+    if s.startswith("|"):
+        return "table"
+    if s.startswith("```mermaid"):
+        return "mermaid"
+    if s.startswith("!["):
+        return "image"
+    return None
+
+
+def add_caption(doc, text):
+    """A table caption sits above its table, the convention students are marked against."""
+    p = doc.add_paragraph()
+    style_paragraph(p, 1.0, WD_ALIGN_PARAGRAPH.CENTER, 4)
+    p.paragraph_format.keep_with_next = True   # a caption orphaned from its table is a defect
+    set_font(p.add_run(text), TABLE_PT, bold=True)
+    return p
+
+
 def add_heading(doc, title, level, page_break=False):
     """Every heading, including a mid-chapter one, is a real Word heading.
 
@@ -354,6 +431,7 @@ def render_markdown(doc, text):
     i = 0
     first_h1 = True
     last = ""
+    pending = None   # a caption line held back until its table or diagram is reached
     while i < len(lines):
         line = lines[i].rstrip()
         if line.startswith("```"):
@@ -372,8 +450,9 @@ def render_markdown(doc, text):
                 continue
             if lang == "mermaid":
                 png = render_mermaid("\n".join(block)) if RENDER["on"] else None
+                cap, pending = pending or caption_from(last), None
                 if png:
-                    add_picture(doc, png, caption_from(last), label="Mermaid diagram")
+                    add_picture(doc, png, cap, label="Mermaid diagram")
                     continue
                 p = doc.add_paragraph()
                 style_paragraph(p, 1.0)
@@ -391,7 +470,8 @@ def render_markdown(doc, text):
             path = img.group(2)
             if not os.path.isabs(path):
                 path = os.path.join(RENDER["base"], path)
-            add_picture(doc, path, img.group(1) or caption_from(last) or None)
+            cap, pending = img.group(1) or pending or caption_from(last) or None, None
+            add_picture(doc, path, cap)
             last = line.strip()
             i += 1
             continue
@@ -401,7 +481,8 @@ def render_markdown(doc, text):
                 if not re.match(r"^\|[\s:|-]+\|?$", lines[i].strip()):
                     rows.append(lines[i].strip().strip("|").split("|"))
                 i += 1
-            add_table(doc, rows)
+            cap, pending = pending or caption_from(last), None
+            add_table(doc, rows, caption=cap)
             last = ""
             continue
         m = re.match(r"^(#{1,4})\s+(.*)", line)
@@ -431,6 +512,13 @@ def render_markdown(doc, text):
         if not line.strip():
             i += 1
             continue
+        if next_block(lines, i):
+            cap = caption_from(line) or unnumbered_caption(line)
+            if cap:                     # hold it back so it lands above the table, below the figure
+                pending = cap
+                last = line.strip()
+                i += 1
+                continue
         p = doc.add_paragraph()
         style_paragraph(p, CFG["line_spacing"], WD_ALIGN_PARAGRAPH.JUSTIFY)
         p.paragraph_format.first_line_indent = Inches(0.5)
@@ -500,38 +588,8 @@ def in_scope(files, chapters):
     return keep, [f for f in files if f not in keep]
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("folder")
-    ap.add_argument("--title", default="Capstone Project Title")
-    ap.add_argument("--out", default="Capstone_Draft.docx")
-    ap.add_argument("--preset", default=None, help="JSON file with font, size, line_spacing, left_margin, other_margin, title_page")
-    ap.add_argument("--chapters", default=None, help="build only these chapters, e.g. 1-3; front and back matter join in only for a whole-paper run")
-    ap.add_argument("--school", default=None, help="name of the school, for the title page")
-    ap.add_argument("--college", default=None, help="college or department, for the title page")
-    ap.add_argument("--degree", default=None, help="degree program, for the title page")
-    ap.add_argument("--authors", default=None, help="group members, one line, for the title page")
-    ap.add_argument("--date", default=None, help="month and year, for the title page")
-    ap.add_argument("--no-render", action="store_true", help="do not render Mermaid diagrams to images")
-    args = ap.parse_args()
-
-    if args.preset:
-        with open(args.preset, encoding="utf-8") as fh:
-            # "chapters" and other non-format settings in a school preset are for gaps_report.py
-            CFG.update({k: v for k, v in json.load(fh).items() if k in CFG})
-    RENDER["on"] = not args.no_render
-
-    files = sorted(f for f in glob.glob(os.path.join(args.folder, "*.md"))
-                   if os.path.basename(f).lower() not in SKIP_FILES)
-    if not files:
-        sys.exit(f"No .md files in {args.folder}")
-    chapters = parse(args.chapters, origin="--chapters") if args.chapters else None
-    files.sort(key=lambda f: (rank(f), f))
-    files, skipped = in_scope(files, chapters)
-    if not files:
-        sys.exit(f"--chapters {args.chapters} matched no chapter file in {args.folder}")
-    RENDER["base"] = args.folder
-
+def new_document(args, with_toc=True):
+    """A blank page-set with the school's margins, a title page, and page numbers."""
     doc = Document()
     for s in doc.sections:
         s.left_margin, s.right_margin = Inches(CFG["left_margin"]), Inches(CFG["other_margin"])
@@ -556,18 +614,19 @@ def main():
 
     # Table of contents. Word fills it when the file opens; the note below is for the
     # readers that ignore that instruction.
-    p = doc.add_paragraph()
-    p.add_run().add_break(WD_BREAK.PAGE)
-    p = doc.add_paragraph()
-    style_paragraph(p, 1.5, WD_ALIGN_PARAGRAPH.CENTER, 6)
-    set_font(p.add_run("TABLE OF CONTENTS"), 12, bold=True)
-    p = doc.add_paragraph()
-    style_paragraph(p, 1.0)
-    add_field(p, 'TOC \\o "1-3" \\h \\z \\u',
-              cached="Contents build themselves when this file opens in Word.", dirty=True)
-    p = doc.add_paragraph()
-    set_font(p.add_run("(If the list above is still empty, the reader did not update its fields: "
-                       "in Word, right-click it and choose Update Field > Update entire table.)"), 10, italic=True)
+    if with_toc:
+        p = doc.add_paragraph()
+        p.add_run().add_break(WD_BREAK.PAGE)
+        p = doc.add_paragraph()
+        style_paragraph(p, 1.5, WD_ALIGN_PARAGRAPH.CENTER, 6)
+        set_font(p.add_run("TABLE OF CONTENTS"), 12, bold=True)
+        p = doc.add_paragraph()
+        style_paragraph(p, 1.0)
+        add_field(p, 'TOC \\o "1-3" \\h \\z \\u',
+                  cached="Contents build themselves when this file opens in Word.", dirty=True)
+        p = doc.add_paragraph()
+        set_font(p.add_run("(If the list above is still empty, the reader did not update its fields: "
+                           "in Word, right-click it and choose Update Field > Update entire table.)"), 10, italic=True)
     update_fields_on_open(doc)
 
     # Page numbers on every page except the title page
@@ -576,16 +635,127 @@ def main():
     footer = section.footer.paragraphs[0]
     footer.alignment = WD_ALIGN_PARAGRAPH.CENTER
     add_field(footer, "PAGE")
+    return doc
 
+
+def write_document(args, files, out_path, with_toc=True):
+    """Assemble one .docx from these markdown files and report what is still unfinished."""
+    doc = new_document(args, with_toc=with_toc)
     for f in files:
         with open(f, "r", encoding="utf-8") as fh:
             text = fh.read()
         p = doc.add_paragraph()
         p.add_run().add_break(WD_BREAK.PAGE)
         render_markdown(doc, text)
+    doc.save(out_path)
+    return readback(out_path)
 
-    doc.save(args.out)
-    student, braces, dryrun = readback(args.out)
+
+def reference_file(files):
+    """The formatted reference list, if this folder has one (format_refs.py writes it)."""
+    for f in files:
+        if "references" in os.path.basename(f).lower():
+            return f
+    return None
+
+
+def reference_entries(path):
+    text = open(path, encoding="utf-8").read()
+    return [ln.strip() for ln in text.splitlines() if ln.strip() and not ln.strip().startswith("#")]
+
+
+def first_author(entry):
+    """The word an in-text citation uses: 'Davis, F. D. (1989)' -> 'Davis'."""
+    m = re.match(r"^([A-Z][\w'\u2019-]+(?:\s+[A-Z][\w'\u2019-]+)*)\s*,", entry)
+    if m:
+        return m.group(1)
+    m = re.match(r"^((?:[A-Z][\w'\u2019-]*\s+){0,5}[A-Z][\w'\u2019-]*)\.", entry)
+    return m.group(1) if m else None
+
+
+def cited_entries(entries, chapter_text):
+    """Keep the references this chapter actually cites, plus any we cannot attribute.
+
+    A chapter handed in on its own needs its own reference list, but shipping the whole
+    bibliography under a chapter that cites six of twenty-four sources is the kind of thing
+    a panelist notices. An entry with no readable author is kept rather than guessed at:
+    leaving out a source the chapter did cite is the worse mistake.
+    """
+    keep = []
+    for entry in entries:
+        who = first_author(entry)
+        if not who or re.search(r"\b" + re.escape(who) + r"\b", chapter_text):
+            keep.append(entry)
+    return keep
+
+
+def write_split(args, files, refs_file):
+    """One submission copy per chapter, each carrying only the references it cites."""
+    stem = os.path.splitext(os.path.basename(args.out))[0]
+    entries = reference_entries(refs_file) if refs_file else []
+    written = []
+    for f in files:
+        n = chapter_number(f)
+        if not n:
+            continue
+        with open(f, "r", encoding="utf-8") as fh:
+            text = fh.read()
+        out = os.path.join(os.path.dirname(os.path.abspath(args.out)), f"{stem} - Chapter {n}.docx")
+        doc = new_document(args)
+        p = doc.add_paragraph()
+        p.add_run().add_break(WD_BREAK.PAGE)
+        render_markdown(doc, text)
+        kept = cited_entries(entries, text) if entries else []
+        if kept:
+            p = doc.add_paragraph()
+            p.add_run().add_break(WD_BREAK.PAGE)
+            add_heading(doc, "REFERENCES", 1, page_break=False)
+            for entry in kept:
+                p = doc.add_paragraph()
+                style_paragraph(p, 1.5)
+                p.paragraph_format.left_indent = Inches(0.5)
+                p.paragraph_format.first_line_indent = Inches(-0.5)
+                add_inline(p, entry)
+        doc.save(out)
+        written.append((out, len(kept)))
+    return written
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("folder")
+    ap.add_argument("--title", default="Capstone Project Title")
+    ap.add_argument("--out", default="Capstone_Draft.docx")
+    ap.add_argument("--preset", default=None, help="JSON file with font, size, line_spacing, left_margin, other_margin, title_page")
+    ap.add_argument("--chapters", default=None, help="build only these chapters, e.g. 1-3 or 2,3; front and back matter join in only for a whole-paper run")
+    ap.add_argument("--school", default=None, help="name of the school, for the title page")
+    ap.add_argument("--college", default=None, help="college or department, for the title page")
+    ap.add_argument("--degree", default=None, help="degree program, for the title page")
+    ap.add_argument("--authors", default=None, help="group members, one line, for the title page")
+    ap.add_argument("--date", default=None, help="month and year, for the title page")
+    ap.add_argument("--no-render", action="store_true", help="do not render Mermaid diagrams to images")
+    ap.add_argument("--split", action="store_true",
+                    help="also write one .docx per chapter, for handing in a single chapter on its own")
+    args = ap.parse_args()
+
+    if args.preset:
+        with open(args.preset, encoding="utf-8") as fh:
+            # "chapters" and other non-format settings in a school preset are for gaps_report.py
+            CFG.update({k: v for k, v in json.load(fh).items() if k in CFG})
+    RENDER["on"] = not args.no_render
+
+    files = sorted(f for f in glob.glob(os.path.join(args.folder, "*.md"))
+                   if os.path.basename(f).lower() not in SKIP_FILES)
+    if not files:
+        sys.exit(f"No .md files in {args.folder}")
+    chapters = parse(args.chapters, origin="--chapters") if args.chapters else None
+    all_files = sorted(files, key=lambda f: (rank(f), f))
+    files, skipped = in_scope(all_files, chapters)
+    if not files:
+        sys.exit(f"--chapters {args.chapters} matched no chapter file in {args.folder}")
+    RENDER["base"] = args.folder
+
+    student, braces, dryrun = write_document(args, files, args.out)
     print(f"Wrote {args.out} from {len(files)} files ({RENDER['count']} image(s) embedded)")
     if skipped:
         print("Outside --chapters, left out of this document: "
@@ -595,6 +765,15 @@ def main():
         print(f"Unfilled {{{{...}}}} fields: {braces}")
     if dryrun:
         print(f"[DRY-RUN] sample passages a real submission must replace or prove: {dryrun}")
+
+    if args.split:
+        refs = reference_file(all_files)
+        if not refs:
+            print("No references file in this folder, so the split documents carry no reference "
+                  "list. Run format_refs.py first if each chapter is handed in on its own.")
+        for out, kept in write_split(args, files, refs):
+            note = f", {kept} of its own references" if kept else ""
+            print(f"Wrote {out}{note}")
     for w in RENDER["warnings"]:
         print("Figure warning - " + w)
 

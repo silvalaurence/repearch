@@ -36,11 +36,20 @@ def parse(spec, origin="chapters"):
     '1-3' is a range and '1,2,3' (or a JSON list) is that set. A lone number means 1
     through that number, the same shortcut the presets already document, so "chapters": 3
     and --chapters 3 both give Chapters 1 to 3. Write 3-3 when only Chapter 3 is submitted.
+
+    The comma form has to be split here, not left to the caller: --chapters arrives from
+    argparse as the single string '2,3', and the previous code passed it through whole and
+    then rejected it as unreadable, telling the student to use the very form it refused.
     """
     if spec is None:
         return None
-    items = spec if isinstance(spec, (list, tuple)) else [spec]
-    lone_is_range = not isinstance(spec, (list, tuple))
+    if isinstance(spec, (list, tuple)):
+        items = [str(i) for i in spec]
+        lone_is_range = False
+    else:
+        text = str(spec).replace(" ", "")
+        items = [part for part in text.split(",") if part] or [text]
+        lone_is_range = len(items) == 1  # only a genuinely lone '3' means 1-3
     found = set()
     for item in items:
         found.update(_expand(item, origin, lone_is_range))
