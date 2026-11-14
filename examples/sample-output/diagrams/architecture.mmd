@@ -1,0 +1,7 @@
+flowchart LR
+  U([Users])
+  F["Frontend<br/>Client interface"]
+  B["Backend<br/>Express.js"]
+  U --> F --> B
+  D[("Database<br/>MySQL (mysql2 driver)")]
+  B --> D

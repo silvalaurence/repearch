@@ -1,0 +1,10 @@
+# Keep text files with LF in the repository regardless of the contributor's OS.
+* text=auto
+
+# Generated example artefacts are binary; never let Git try to diff or normalise them.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.docx binary
+*.xlsx binary
+*.pdf binary

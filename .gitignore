@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+output/
+scan.json
+!examples/sample-output/scan.json
+*.docx
+!examples/sample-output/*.docx
+.env
+.DS_Store

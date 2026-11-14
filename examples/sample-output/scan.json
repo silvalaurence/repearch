@@ -1,0 +1,148 @@
+{
+  "project_folder": "sample-project",
+  "languages": {
+    "JavaScript": 3,
+    "SQL": 1
+  },
+  "manifests": {
+    "package.json": "{\"name\":\"queue\",\"version\":\"1.0.0\",\"dependencies\":{\"express\":\"^4.19.0\",\"mysql2\":\"^3.9.0\",\"bcrypt\":\"^5.1.1\",\"jsonwebtoken\":\"^9.0.2\"},\"devDependencies\":{\"jest\":\"^29.7.0\"}}\n"
+  },
+  "folders": [
+    "db",
+    "routes",
+    "tests"
+  ],
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/queue",
+      "file": "routes/queue.js"
+    },
+    {
+      "method": "POST",
+      "path": "/queue",
+      "file": "routes/queue.js"
+    },
+    {
+      "method": "PUT",
+      "path": "/queue/:id/call",
+      "file": "routes/queue.js"
+    },
+    {
+      "method": "GET",
+      "path": "/residents",
+      "file": "routes/residents.js"
+    },
+    {
+      "method": "POST",
+      "path": "/residents",
+      "file": "routes/residents.js"
+    }
+  ],
+  "tables": {
+    "residents": [
+      {
+        "name": "id",
+        "type": "INT",
+        "flags": [
+          "PK"
+        ]
+      },
+      {
+        "name": "full_name",
+        "type": "VARCHAR(100)",
+        "flags": [
+          "NOT NULL"
+        ]
+      },
+      {
+        "name": "address",
+        "type": "TEXT",
+        "flags": []
+      }
+    ],
+    "staff": [
+      {
+        "name": "id",
+        "type": "INT",
+        "flags": [
+          "PK"
+        ]
+      },
+      {
+        "name": "username",
+        "type": "VARCHAR(50)",
+        "flags": [
+          "NOT NULL",
+          "UNIQUE"
+        ]
+      },
+      {
+        "name": "password_hash",
+        "type": "VARCHAR(255)",
+        "flags": [
+          "NOT NULL"
+        ]
+      }
+    ],
+    "tickets": [
+      {
+        "name": "id",
+        "type": "INT",
+        "flags": [
+          "PK"
+        ]
+      },
+      {
+        "name": "resident_id",
+        "type": "INT",
+        "flags": [
+          "NOT NULL",
+          "FK"
+        ],
+        "ref": "residents"
+      },
+      {
+        "name": "called_by",
+        "type": "INT",
+        "flags": [
+          "FK"
+        ],
+        "ref": "staff"
+      },
+      {
+        "name": "status",
+        "type": "VARCHAR(20)",
+        "flags": []
+      },
+      {
+        "name": "created_at",
+        "type": "TIMESTAMP",
+        "flags": []
+      }
+    ]
+  },
+  "env_vars": [
+    "DB_HOST",
+    "JWT_SECRET"
+  ],
+  "env_declared": [],
+  "test_files": [
+    "tests/queue.test.js"
+  ],
+  "other_test_files": [],
+  "server_files": [],
+  "api_calls": [],
+  "migrations": [],
+  "todos": [
+    {
+      "file": "routes/queue.js",
+      "line": 3,
+      "text": "// TODO: add pagination"
+    }
+  ],
+  "readme": "# Barangay Queue System\nSimple queue app for a barangay hall. Residents get a ticket; staff call the next number.\n",
+  "file_count": 6,
+  "ignored_folders": 0,
+  "vendored_packs": 0
+}

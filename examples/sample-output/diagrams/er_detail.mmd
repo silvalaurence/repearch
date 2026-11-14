@@ -1,0 +1,20 @@
+erDiagram
+  residents ||--o{ tickets : "resident_id"
+  staff ||--o{ tickets : "called_by"
+  residents {
+    INT id PK
+    VARCHAR(100) full_name
+    TEXT address
+  }
+  staff {
+    INT id PK
+    VARCHAR(50) username UK
+    VARCHAR(255) password_hash
+  }
+  tickets {
+    INT id PK
+    INT resident_id FK
+    INT called_by FK
+    VARCHAR(20) status
+    TIMESTAMP created_at
+  }
