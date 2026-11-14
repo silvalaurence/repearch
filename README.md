@@ -143,6 +143,15 @@ Anything you leave out stays marked `[STUDENT: School name]` and yellow. Put the
 - **Draw for the page.** mermaid.live returns whatever shape the graph wants; a wide tree at page width prints as a strip nobody can read, and the builder warns you when that happens. The check is on the width-to-height ratio, not just on height: a 3.4:1 chart still prints 1.6 in tall and still loses every label, so anything past about 2.4:1 is flagged. Group nodes into row-wise subgraphs, and split any tree with more than ~15 leaves into two captioned figures.
 - **Big schemas are already split.** `diagrams/er.mmd` is the printable figure (entities and relationships only), `diagrams/er_detail.mmd` keeps every column for the data dictionary, and `diagrams/er_part1.mmd`, `er_part2.mmd` ... follow the foreign-key lines into page-sized groups.
 
+## Tables
+
+A pipe table in the markdown becomes a bordered table that fills the text block exactly, header row shaded and repeated if the table runs onto a second page, and no row split across a page break.
+
+- **Columns follow the content.** Widths come from the 90th percentile of each column's cell length, so one long cell cannot starve the rest, compressed with a 0.75 power so a 105-character cell does not take four times the room of a 29-character label.
+- **No header breaks mid-word.** Each column has a floor taken from the longest word in its header.
+- **Ticks and counts share one width and are centred.** A column that is mostly `✓`, `✗` or a single number is treated as a scale: every such column in a table gets the same width, and its cells are centred rather than ragged left.
+- **Not everything belongs in a grid.** A table earns its place when several items share the same attributes. A block of label-and-one-paragraph items - a Business Model Canvas, a software specification - reads better as a bulleted list with the label in bold, which is also how Chapter I usually states its objectives and definitions. Write `- **Key Partners.** ...` and it prints as a hanging-indent bullet.
+
 ## A dry run, in the open
 
 Asking what the paper would look like before the work exists is fine, as long as it is marked. Put sample sentences inside `[DRY-RUN: ...]` - a test date, a number of respondents, a place where sessions were "observed". They print bright green, `gaps_report.py --dry-run` lists each one under "Sentences you wrote yourself in this dry run", and `--strict` fails until you have proven or deleted them.

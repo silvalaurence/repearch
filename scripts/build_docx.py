@@ -209,24 +209,85 @@ def shade(cell, fill):
     tcPr.append(shd)
 
 
+CHAR_IN = 0.060          # rough advance width of one table-font character, in inches
+MIN_COL_IN = 0.55
+
+
+def is_short_column(body, i):
+    """A column of ticks, counts or short codes - the kind that reads as a scale."""
+    vals = [str(r[i]).strip() for r in body if i < len(r)]
+    return bool(vals) and sum(1 for v in vals if len(v) <= 3) >= 0.7 * len(vals)
+
+
+def column_align(body, i):
+    """A column of ticks, numbers or short codes reads better centred than ragged left."""
+    vals = [str(r[i]).strip() for r in body if i < len(r)]
+    if vals and sum(1 for v in vals if len(v) <= 3) >= 0.7 * len(vals):
+        return WD_ALIGN_PARAGRAPH.CENTER
+    return WD_ALIGN_PARAGRAPH.LEFT
+
+
 def column_widths(header, body):
     """Widths that follow the content and add up to exactly the text block.
 
     Word's equal columns turn a data dictionary into a fight between a four-character
     'Key' column and a sixty-character 'Description' column. The 90th percentile is used
     instead of the longest cell so one oversized row cannot starve the rest of the table.
+
+    Three refinements came out of a real Chapters II-III run. A straight length ratio
+    starved the short label column of a five-column table: a 105-character hypothesis cell
+    took four times the room of a 29-character stage label, which then wrapped to six
+    lines. Length is compressed with a 0.75 power instead. Every column also gets a floor
+    taken from the longest word in its header, so no header breaks mid-word. And columns
+    that hold only ticks or counts share one width - measured separately they came out
+    0.55, 0.85, 0.89 and 1.23 wide in the same matrix, which reads as hand-drawn.
     """
     n = len(header)
-    need = []
+    weights, floors = [], []
     for i in range(n):
-        cells = sorted([len(str(header[i]))] + [len(str(r[i])) for r in body if i < len(r)])
-        need.append(max(min(cells[int(0.9 * (len(cells) - 1))], 60), 6))
-    total = int(round(text_width_in() * 1440))  # Word lays tables out in twentieths of a point
-    floor = min(720, total // n)
-    raw = [max(int(round(total * w / sum(need))), floor) for w in need]
-    widest = max(range(n), key=lambda i: raw[i])
-    raw[widest] = max(raw[widest] + total - sum(raw), 1)  # absorb the rounding drift
-    return [Emu(w * 635) for w in raw]
+        cells = sorted(len(str(r[i])) for r in body if i < len(r))
+        p90 = cells[int(0.9 * (len(cells) - 1))] if cells else 0
+        weights.append(max(min(p90, 120) ** 0.75, len(str(header[i])) ** 0.75, 3))
+        longest = max((len(w) for w in re.split(r"[\s/]+", str(header[i]).strip())), default=1)
+        floors.append(max(longest * CHAR_IN + 0.18, MIN_COL_IN))
+
+    total = text_width_in()
+    if sum(floors) >= total:                     # a very wide table: floors, scaled down
+        scale = total / sum(floors)
+        return [Emu(int(round(f * scale * 1440)) * 635) for f in floors]
+
+    raw = [total * w / sum(weights) for w in weights]
+
+    short = [i for i in range(n) if is_short_column(body, i)]
+    if short:
+        shared = max(sum(raw[i] for i in short) / len(short), max(floors[i] for i in short))
+        for i in short:
+            raw[i] = shared
+        wide = [i for i in range(n) if i not in short]
+        rest = total - shared * len(short)
+        held = sum(raw[i] for i in wide)
+        if wide and rest > 0 and held > 0:
+            for i in wide:
+                raw[i] = rest * raw[i] / held
+
+    for _ in range(4):
+        tight = [i for i in range(n) if raw[i] < floors[i] - 1e-9]
+        if not tight:
+            break
+        deficit = sum(floors[i] - raw[i] for i in tight)
+        for i in tight:
+            raw[i] = floors[i]
+        spare = sum(raw[i] for i in range(n) if i not in tight)
+        if spare <= 0:
+            break
+        for i in range(n):
+            if i not in tight:
+                raw[i] -= deficit * raw[i] / spare
+
+    scale = total / sum(raw)
+    twips = [max(int(round(w * scale * 1440)), 1) for w in raw]
+    twips[max(range(n), key=lambda i: twips[i])] += int(round(total * 1440)) - sum(twips)
+    return [Emu(w * 635) for w in twips]
 
 
 def add_table(doc, rows, caption=None):
@@ -234,6 +295,7 @@ def add_table(doc, rows, caption=None):
     if caption:
         add_caption(doc, caption)
     widths = column_widths(header, body)
+    aligns = [column_align(body, i) for i in range(len(header))]
     t = doc.add_table(rows=1, cols=len(header))
     t.style = "Table Grid"
     t.alignment = WD_TABLE_ALIGNMENT.CENTER
@@ -256,7 +318,7 @@ def add_table(doc, rows, caption=None):
         c.width = widths[i]
         c.text = ""
         p = c.paragraphs[0]
-        style_paragraph(p, 1.0)
+        style_paragraph(p, 1.0, aligns[i])
         emit(p, h.strip(), TABLE_PT, bold=True)
         shade(c, "D9D9D9")
     row_property(t.rows[0], "tblHeader", "true")   # repeats on every page the table runs onto
@@ -267,7 +329,7 @@ def add_table(doc, rows, caption=None):
             cells[i].width = widths[i]
             cells[i].text = ""
             p = cells[i].paragraphs[0]
-            style_paragraph(p, 1.0)
+            style_paragraph(p, 1.0, aligns[i])
             add_inline(p, r[i].strip() if i < len(r) else "", TABLE_PT)
         row_property(t.rows[-1], "cantSplit")      # no row half on one page and half on the next
     doc.add_paragraph()

@@ -590,3 +590,29 @@ def test_split_gives_each_chapter_its_own_references(tmp_path):
     assert any("Davis" in t for t in ch2) and any("Wong" in t for t in ch2)
     assert not any("Zimmerman" in t for t in ch2), "a chapter does not ship sources it never cites"
     assert any("Zimmerman" in t for t in ch3) and not any("Davis" in t for t in ch3)
+
+
+def test_tick_columns_share_one_width_and_short_labels_keep_room():
+    """The matrix had tick columns 0.55, 0.85, 0.89 and 1.23 wide in the same table."""
+    from build_docx import column_align, column_widths
+    header = ["Feature / criterion", "Google Calendar and Todoist", "Wong (2024)",
+              "Paul et al. (2024)", "Your proposed study"]
+    body = [["AI-assisted schedule generation", "✗", "✓", "✗", "✓"],
+            ["Automatic task prioritisation", "✗", "✗", "✓", "✓"],
+            ["Deadline conflict warnings", "✓", "✓", "✗", "✓"]]
+    w = [int(x) / 914400 for x in column_widths(header, body)]
+    ticks = w[1:]
+    assert max(ticks) - min(ticks) < 0.02, f"tick columns must match: {ticks}"
+    assert w[0] > ticks[0], "the feature column is still the widest"
+    assert column_align(body, 1) == 1, "a column of ticks is centred"
+    assert column_align(body, 0) == 0, "prose stays left"
+
+    # The validation board: 29-character stage labels against 105-character hypotheses.
+    # The straight ratio gave the label column 0.55in and six-line labels.
+    header = ["Stage", "Hypothesis tested", "Method", "Evidence recorded", "Decision / Pivot"]
+    body = [["Stage 1 — Core Customer Hypothesis", "h" * 100, "m" * 70, "e" * 83, "d" * 79],
+            ["Stage 2 — Problem Hypothesis", "h" * 105, "m" * 70, "e" * 80, "d" * 64],
+            ["Stage 3 — Solution Hypothesis", "h" * 132, "m" * 82, "e" * 95, "d" * 92]]
+    w = [int(x) / 914400 for x in column_widths(header, body)]
+    assert w[0] >= 0.60, f"the stage label column is starved at {w[0]:.2f}in (was 0.55)"
+    assert abs(sum(w) - 6.0) < 0.02, "the columns still fill the text block exactly"
