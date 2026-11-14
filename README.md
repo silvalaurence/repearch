@@ -1,8 +1,10 @@
 # repearch
 
-A WorkBuddy skill that turns **your real project code** into honest, editable capstone documentation for IT / CS / IS students (built around the common Philippine Chapter 1-5 format).
+A portable **agent skill** — a `SKILL.md` plus plain-Python scripts — that works with **any AI coding harness**, and turns **your real project code** into honest, editable capstone documentation for IT / CS / IS students (built around the common Philippine Chapter 1-5 format).
 
 It does the boring documentation work: reading your code, drawing the ER diagram, building the data dictionary, listing modules and endpoints, formatting the Word file. **You** still write the problem, the literature review, and the conclusions, because you are the one who defends them.
+
+**No vendor lock-in.** `SKILL.md` is just an instruction sheet in the open Agent Skills format (a folder with YAML frontmatter and Markdown); the scripts are ordinary Python 3 depending only on `python-docx` and `openpyxl`. There is no SDK, API key, model call, or harness-specific code anywhere in this repo. Any agent that can discover a skills folder can drive it — and every script also runs by hand from a terminal with no agent at all.
 
 ## What it does
 
@@ -29,20 +31,25 @@ Panels check these things, and AI-written fake data can get a capstone failed. C
 
 ## Install
 
-**WorkBuddy (skill):**
+repearch is a **folder, not a package**. Put it wherever your AI harness discovers skills; the folder itself needs no changes from one harness to another.
 
 ```bash
-git clone https://github.com/silvalaurence/repearch ~/.workbuddy-ai/skills/repearch
-pip install -r ~/.workbuddy-ai/skills/repearch/requirements.txt
+# <skills-dir> is wherever your agent looks for skills.
+git clone https://github.com/silvalaurence/repearch <skills-dir>/repearch
+pip install -r <skills-dir>/repearch/requirements.txt
 ```
 
-Then, inside your project folder, tell WorkBuddy:
+For example, WorkBuddy reads `~/.workbuddy-ai/skills/`, so there the command is
+`git clone https://github.com/silvalaurence/repearch ~/.workbuddy-ai/skills/repearch`.
+Most harnesses also accept a project-local skills folder, and any agent can simply be pointed at this repo's `SKILL.md` directly — frontmatter (`name`, `description`) plus instructions is all the format requires. If your harness uses a different directory, just clone there instead.
+
+Then, inside your project folder, tell your agent:
 
 > Use the repearch skill on this project.
 
 It will ask a few questions (school, title, users, problem), run the scripts, fill the templates, and give you a `Capstone_Draft.docx` and a "What you still need to do" list.
 
-**Without an AI assistant**, the scripts work on their own:
+**Without any agent**, the scripts work on their own:
 
 ```bash
 python scripts/scan_repo.py ./my-project --out output/scan.json
