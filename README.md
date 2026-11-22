@@ -1,4 +1,4 @@
-<p align="center"><img src="repearch-logo.svg" width="240" alt="repearch"></p>
+<img src="site/logo.svg" alt="repearch" width="370">
 
 A portable **agent skill** — a `SKILL.md` plus plain-Python scripts — that works with **any AI coding harness**, and turns **your real project code** into honest, editable capstone documentation for IT / CS / IS students (built around the common Philippine Chapter 1-5 format).
 
